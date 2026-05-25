@@ -52,6 +52,30 @@ def _resolve_key(md: dict, logical: str) -> str | None:
     return None
 
 
+def _pluck(md: dict, logical: str):
+    """Resolve a logical field to its scalar value.
+
+    Several MLIT NLNI fields hold dicts (e.g. ``NLNI:riyo_genkyo`` →
+    ``{"dai_bunrui": "住宅", ...}``). When the resolved value is a dict, we
+    pull out ``FIELD_SUBKEY[logical]`` if set, otherwise the first scalar value.
+    Returns ``None`` when the field isn't present.
+    """
+    key = _resolve_key(md, logical)
+    if key is None:
+        return None
+    value = md.get(key)
+    if isinstance(value, dict):
+        subkey = getattr(config, "FIELD_SUBKEY", {}).get(logical)
+        if subkey and subkey in value:
+            return value.get(subkey)
+        # Fallback: first non-dict, non-list scalar in the dict.
+        for v in value.values():
+            if v is not None and not isinstance(v, (dict, list)):
+                return v
+        return None
+    return value
+
+
 def _to_float(value) -> float | None:
     if value is None:
         return None
@@ -117,10 +141,6 @@ def _records_to_df(records: list[dict], region_key: str) -> pd.DataFrame:
     rows = []
     for r in records:
         md = _as_dict(r.get("metadata"))
-        price_key = _resolve_key(md, "price")
-        use_key = _resolve_key(md, "use")
-        addr_key = _resolve_key(md, "address")
-        address = (md.get(addr_key) if addr_key else None) or r.get("title")
         rows.append(
             {
                 "id": r.get("id"),
@@ -128,9 +148,9 @@ def _records_to_df(records: list[dict], region_key: str) -> pd.DataFrame:
                 "year": r.get("year"),
                 "lat": r.get("lat"),
                 "lon": r.get("lon"),
-                "price": _to_float(md.get(price_key)) if price_key else None,
-                "use": md.get(use_key) if use_key else None,
-                "address": address,
+                "price": _to_float(_pluck(md, "price")),
+                "use": _pluck(md, "use"),
+                "address": _pluck(md, "address") or r.get("title"),
                 "dataset_id": r.get("dataset_id"),
             }
         )
