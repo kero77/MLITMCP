@@ -91,13 +91,18 @@ with st.sidebar:
     use = st.selectbox("用途区分", ["（すべて）"] + use_opts)
     use = None if use == "（すべて）" else use
 
+    # Embedded price history starts at 昭和58 (1983). Guard against snapshot
+    # years older than that (some datasets expose pre-1983 DPF:year buckets) so
+    # the number_input bounds stay consistent (min <= value <= max).
+    earliest = 1983
+    floor = min(earliest, snapshot_year)
     trend_year_min = st.number_input(
         "推移チャート開始年",
-        min_value=1983,
+        min_value=floor,
         max_value=snapshot_year,
-        value=max(snapshot_year - 20, 1983),
+        value=min(max(snapshot_year - 20, floor), snapshot_year),
         step=1,
-        help="チャート横軸の表示開始年。データ自体は1983年(昭和58)まで遡れます。",
+        help="チャート横軸の表示開始年。価格履歴は1983年(昭和58)まで遡れます。",
     )
 
 
