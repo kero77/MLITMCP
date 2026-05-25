@@ -83,40 +83,54 @@ THEMES: dict[str, Theme] = {
         search_terms=["地価公示", "都道府県地価調査", "地価調査"],
         dataset_keys=["land_koji", "land_chosa"],
     ),
-    "transaction": Theme(
-        key="transaction",
-        label="不動産取引価格",
-        search_terms=["不動産取引価格", "取引価格情報"],
-        dataset_keys=["transaction"],
-    ),
+    # NOTE: "不動産取引価格" (real-estate transaction price) is NOT served by the
+    # MLIT Data Platform API used here. Verified 2026-05-25 via discover.py:
+    # 0 hits across all 37 catalogs / ~140 datasets. That data lives on a
+    # separate service — 国土交通省 不動産情報ライブラリ
+    # (https://www.reinfolib.mlit.go.jp/). Adding transaction support requires
+    # a new API client; intentionally omitted to avoid an empty UI tab.
 }
 
 DEFAULT_THEME = "land_price"
 
 
 # --- Discovered identifiers --------------------------------------------------
-# Filled in by running discover.py. Leave empty to fall back to keyword search.
+# Confirmed via discover.py against https://data-platform.mlit.go.jp on
+# 2026-05-25. Re-run discover.py if dataset IDs change upstream; the data layer
+# falls back to keyword search when DATASETS is empty.
 DATASETS: dict[str, str] = {
-    # "land_koji": "<dataset_id>",
-    # "land_chosa": "<dataset_id>",
-    # "transaction": "<dataset_id>",
+    "land_koji":  "nlni_ksj-l01",   # 地価公示 (25,565 records nationwide)
+    "land_chosa": "nlni_ksj-l02",   # 都道府県地価調査 (21,431 records nationwide)
 }
 
-# Maps logical fields to the metadata key found in real records. When a value is
-# None the data layer uses the candidate lists below (heuristic extraction).
+# Logical field → real metadata key. Confirmed from sample records in
+# data/sample/sample_地価公示.json. price/year are scalars; use/address are
+# JSON objects — the data layer pulls a sub-key via FIELD_SUBKEY.
 FIELD_MAP: dict[str, str | None] = {
-    "price": None,     # price per square meter (円/m²)
-    "use": None,       # land-use category (用途区分)
-    "address": None,   # location / address (所在)
-    "year": None,      # survey year
+    "price":   "NLNI:chika_kouji_kakaku",   # int, 円/m²
+    "use":     "NLNI:riyo_genkyo",          # dict — see FIELD_SUBKEY
+    "address": "NLNI:hyojun_chi_shozai",    # dict — see FIELD_SUBKEY
+    "year":    "DPF:year",                  # int (survey year)
+}
+
+# When a FIELD_MAP value resolves to a dict, pluck this sub-key out of it.
+# None means the field is already a scalar.
+FIELD_SUBKEY: dict[str, str | None] = {
+    "price":   None,
+    "use":     "dai_bunrui",     # 大分類 ("住宅" / "商業" / "工業" / ...)
+    "address": "shozai_chiban",  # full address with chiban (most user-friendly)
+    "year":    None,
 }
 
 # Heuristic candidates (substrings of metadata keys) used when FIELD_MAP is unset.
+# Kept as a safety net for future datasets. NOTE: MLIT NLNI fields use romaji
+# keys (e.g. `chika_kouji_kakaku`, `hyojun_chi_shozai`), so candidates include
+# both kanji and romaji fragments.
 FIELD_CANDIDATES: dict[str, list[str]] = {
-    "price": ["価格", "価額", "u_current_years_price", "price", "円", "地価"],
-    "use": ["用途", "利用", "use", "category", "区分"],
-    "address": ["所在", "住所", "地番", "address", "location", "名称"],
-    "year": ["DPF:year", "year", "年", "価格時点", "調査基準日"],
+    "price":   ["価格", "価額", "kouji_kakaku", "kakaku", "u_current_years_price", "price"],
+    "use":     ["用途", "利用", "riyo_genkyo", "riyo_kubun", "use", "category", "区分"],
+    "address": ["所在", "住所", "地番", "shozai", "hyojun_chi_shozai", "address", "location"],
+    "year":    ["DPF:year", "nendo", "year", "年", "価格時点", "調査基準日"],
 }
 
 YEAR_ATTRIBUTE = "DPF:year"
