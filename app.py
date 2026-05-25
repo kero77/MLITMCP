@@ -15,6 +15,10 @@ import config
 from mlit import data
 from mlit.client import MlitApiError
 
+# Embedded price history starts at 昭和58 (1983); snapshot years older than that
+# carry no usable history, so they're hidden from the selector below.
+EARLIEST_YEAR = 1983
+
 st.set_page_config(page_title="大阪・神戸 地価ダッシュボード", layout="wide")
 st.title("🏙️ 大阪・神戸エリア 地価ダッシュボード")
 st.caption(
@@ -66,6 +70,7 @@ except Exception as exc:  # noqa: BLE001 - surface any API/network issue to the 
     st.error(f"データ取得に失敗しました: {exc}")
     st.stop()
 
+years = [y for y in years if y >= EARLIEST_YEAR]
 if not years:
     st.warning("対象データが見つかりませんでした。テーマや都市を変えてお試しください。")
     st.stop()
@@ -93,11 +98,11 @@ with st.sidebar:
 
     trend_year_min = st.number_input(
         "推移チャート開始年",
-        min_value=1983,
+        min_value=EARLIEST_YEAR,
         max_value=snapshot_year,
-        value=max(snapshot_year - 20, 1983),
+        value=max(snapshot_year - 20, EARLIEST_YEAR),
         step=1,
-        help="チャート横軸の表示開始年。データ自体は1983年(昭和58)まで遡れます。",
+        help="チャート横軸の表示開始年。価格履歴は1983年(昭和58)まで遡れます。",
     )
 
 
