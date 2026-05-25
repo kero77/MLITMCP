@@ -168,20 +168,42 @@ def _records_to_df(records: list[dict], region_key: str) -> pd.DataFrame:
 # --- public API --------------------------------------------------------------
 @st.cache_data(ttl=3600, show_spinner=False)
 def available_years(region_key: str, theme_key: str) -> list[int]:
-    """Survey years present for a region/theme (newest first)."""
+    """Survey years that actually contain land-price records (newest first).
+
+    Filters out:
+      - slices with dataCount == 0 (the API echoes empty year buckets)
+      - prefecture-wide aggregated years that come from *other* datasets
+        (museums, schools, etc.) — we only count years where the theme's
+        dataset IDs have non-zero records.
+    """
     client = get_client()
     region = config.REGIONS[region_key]
-    attr = q.attr_and([(config.PREF_ATTRIBUTE, region.prefecture_code)])
-    term = "" if _theme_dataset_ids(theme_key) else _theme_term(theme_key)
-    data = client.execute(q.count_by_year_q(attribute_filter=attr, term=term))
-    slices = (data.get("countData") or {}).get("slices") or []
-    years: list[int] = []
-    for s in slices:
-        try:
-            years.append(int(str(s.get("attributeValue"))))
-        except (ValueError, TypeError):
-            continue
-    return sorted(set(years), reverse=True)
+    pref_filter = [(config.PREF_ATTRIBUTE, region.prefecture_code)]
+    ds_ids = _theme_dataset_ids(theme_key)
+    years: set[int] = set()
+
+    # Issue one count_by_year per dataset when IDs are known, otherwise fall
+    # back to the broad theme-term query (and trust dataCount > 0 to scope it).
+    queries: list[str] = []
+    if ds_ids:
+        for ds_id in ds_ids:
+            attr = q.attr_and(pref_filter + [(config.DATASET_ATTRIBUTE, ds_id)])
+            queries.append(q.count_by_year_q(attribute_filter=attr, term=""))
+    else:
+        attr = q.attr_and(pref_filter)
+        queries.append(q.count_by_year_q(attribute_filter=attr, term=_theme_term(theme_key)))
+
+    for query in queries:
+        data = client.execute(query)
+        for s in (data.get("countData") or {}).get("slices") or []:
+            count = s.get("dataCount") or 0
+            if count <= 0:
+                continue
+            try:
+                years.add(int(str(s.get("attributeValue"))))
+            except (ValueError, TypeError):
+                continue
+    return sorted(years, reverse=True)
 
 
 def land_price_points(region_key: str, year: int, use: str | None = None) -> pd.DataFrame:
@@ -211,6 +233,80 @@ def land_price_trend(region_key: str, years: list[int], use: str | None = None) 
     grp = (
         hist.dropna(subset=["price"])
         .groupby("year")["price"]
+        .agg(mean_price="mean", median_price="median", count="count")
+        .reset_index()
+        .sort_values("year")
+    )
+    grp["yoy_pct"] = grp["mean_price"].pct_change() * 100
+    return grp.reset_index(drop=True)
+
+
+# --- embedded multi-year history --------------------------------------------
+# Era roots: showa N -> 1925+N, heisei N -> 1988+N, reiwa N -> 2018+N.
+# A small numeric tag at the end of the key (e.g. "showa58", "reiwa8") encodes
+# the era year. Verified against sample_地価公示.json: covers 1983-2026.
+_ERA_BASES: dict[str, int] = {"showa": 1925, "heisei": 1988, "reiwa": 2018}
+
+
+def _era_key_to_calendar_year(key: str) -> int | None:
+    """Convert an era-year key ("reiwa8", "heisei30") to a 4-digit year.
+
+    Returns ``None`` for keys outside the showa/heisei/reiwa families.
+    """
+    for era, base in _ERA_BASES.items():
+        if key.startswith(era):
+            tail = key[len(era):]
+            if tail.isdigit():
+                return base + int(tail)
+    return None
+
+
+def land_price_trend_embedded(
+    region_key: str, year: int, use: str | None = None
+) -> pd.DataFrame:
+    """Yearly mean/median price *built from each point's embedded history*.
+
+    Each 地価公示 record carries a ~44-year price history in
+    ``config.PRICE_HISTORY_FIELD`` (e.g. ``{"reiwa8": 197000, ...}``). We pull
+    one year's worth of points then expand that history into long-form rows,
+    skipping zero entries (= the point wasn't surveyed that year). This avoids
+    issuing one API call per year and yields a denser trend than per-year
+    snapshots (older snapshots often don't exist as separate platform rows).
+    """
+    raw = _fetch_points(region_key, "land_price", year)
+    region = config.REGIONS[region_key]
+    history_key = getattr(config, "PRICE_HISTORY_FIELD", "NLNI:kouji_kakaku")
+
+    rows: list[dict] = []
+    for r in raw:
+        md = _as_dict(r.get("metadata"))
+        history = md.get(history_key)
+        if not isinstance(history, dict):
+            continue
+        # Apply the same address-based city filter used in _records_to_df, and
+        # the optional use-category filter, so the trend reflects only the
+        # currently selected slice.
+        addr = _pluck(md, "address") or r.get("title") or ""
+        if region.city_name and region.city_name not in str(addr):
+            continue
+        if use is not None:
+            point_use = _pluck(md, "use")
+            if point_use != use:
+                continue
+        for era_key, value in history.items():
+            cal_year = _era_key_to_calendar_year(era_key)
+            if cal_year is None:
+                continue
+            price = _to_float(value)
+            if not price:  # 0 / None means "not surveyed for this point that year"
+                continue
+            rows.append({"year": cal_year, "price": price})
+
+    if not rows:
+        return pd.DataFrame()
+    df = pd.DataFrame(rows)
+    grp = (
+        df.groupby("year")["price"]
         .agg(mean_price="mean", median_price="median", count="count")
         .reset_index()
         .sort_values("year")

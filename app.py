@@ -18,8 +18,8 @@ from mlit.client import MlitApiError
 st.set_page_config(page_title="大阪・神戸 地価ダッシュボード", layout="wide")
 st.title("🏙️ 大阪・神戸エリア 地価ダッシュボード")
 st.caption(
-    "国土交通省データプラットフォームから地価（公示地価・地価調査）と"
-    "不動産取引価格をライブ取得し、直近の動向を可視化します。"
+    "国土交通省データプラットフォームから地価（公示地価・地価調査）を"
+    "ライブ取得し、各地点に内包された過去履歴から推移を可視化します。"
 )
 
 
@@ -44,9 +44,15 @@ with st.sidebar:
     region_keys = [region_labels[lbl] for lbl in selected_labels] or [config.DEFAULT_REGION]
     primary_key = region_keys[0]
 
+    # Theme selector — only shown when more than one theme exists. Currently
+    # only land_price is wired up (transaction-price needs a separate API
+    # client, see config.py THEMES comment), so we hide the empty radio.
     theme_labels = {t.label: k for k, t in config.THEMES.items()}
-    theme_label = st.radio("テーマ", list(theme_labels.keys()))
-    theme_key = theme_labels[theme_label]
+    if len(theme_labels) > 1:
+        theme_label = st.radio("テーマ", list(theme_labels.keys()))
+        theme_key = theme_labels[theme_label]
+    else:
+        theme_key = next(iter(theme_labels.values()))
 
 
 @st.cache_data(ttl=3600, show_spinner=False)
@@ -65,25 +71,34 @@ if not years:
     st.stop()
 
 with st.sidebar:
-    if len(years) > 1:
-        yr_min, yr_max = st.select_slider(
-            "調査年の範囲",
-            options=years[::-1],
-            value=(years[-1], years[0]),
-        )
-    else:
-        yr_min = yr_max = years[0]
-        st.write(f"調査年: {years[0]}")
-    year_range = [y for y in years if yr_min <= y <= yr_max]
+    # Snapshot year — single selector, defaults to the latest year that has
+    # actual records. Each 地価公示 point carries its own multi-year history
+    # internally, so we only fetch ONE year's worth of points and build the
+    # trend chart from that.
+    snapshot_year = st.selectbox(
+        "スナップショット年（地点データ取得年）",
+        options=years,
+        index=0,
+        help="この年の地点データを取得します。年次推移は各地点に内包された価格履歴(昭和58〜令和)から自動構築します。",
+    )
 
     use_opts = []
     if theme_key == "land_price":
         try:
-            use_opts = data.land_use_options(primary_key, years[0])
+            use_opts = data.land_use_options(primary_key, snapshot_year)
         except Exception:  # noqa: BLE001
             use_opts = []
     use = st.selectbox("用途区分", ["（すべて）"] + use_opts)
     use = None if use == "（すべて）" else use
+
+    trend_year_min = st.number_input(
+        "推移チャート開始年",
+        min_value=1983,
+        max_value=snapshot_year,
+        value=max(snapshot_year - 20, 1983),
+        step=1,
+        help="チャート横軸の表示開始年。データ自体は1983年(昭和58)まで遡れます。",
+    )
 
 
 # --- load trends -------------------------------------------------------------
@@ -94,22 +109,11 @@ trend_frames = {}
 with st.spinner("データを取得中..."):
     for key in region_keys:
         try:
-            if is_land:
-                t = data.land_price_trend(key, year_range, use)
-            else:
-                rows = [data.transaction_prices(key, y).assign(year=y) for y in year_range]
-                rows = [r for r in rows if not r.empty]
-                if rows:
-                    h = pd.concat(rows, ignore_index=True).dropna(subset=["price"])
-                    t = (
-                        h.groupby("year")["price"]
-                        .agg(mean_price="mean", median_price="median", count="count")
-                        .reset_index()
-                        .sort_values("year")
-                    )
-                    t["yoy_pct"] = t["mean_price"].pct_change() * 100
-                else:
-                    t = pd.DataFrame()
+            t = data.land_price_trend_embedded(key, snapshot_year, use)
+            if not t.empty:
+                t = t[t["year"] >= trend_year_min].reset_index(drop=True)
+                # Recompute yoy after the start-year clip so the first row is NaN.
+                t["yoy_pct"] = t["mean_price"].pct_change() * 100
             if not t.empty:
                 trend_frames[config.REGIONS[key].label] = t
         except Exception as exc:  # noqa: BLE001
@@ -165,9 +169,9 @@ if primary_trend is not None and "yoy_pct" in primary_trend:
 
 # --- map of detailed points (land price) -------------------------------------
 if is_land:
-    st.subheader(f"🗺️ 地点別の地価 — {primary_label}（{year_range[0]}年）")
+    st.subheader(f"🗺️ 地点別の地価 — {primary_label}（{snapshot_year}年）")
     try:
-        points = data.land_price_points(primary_key, year_range[0], use)
+        points = data.land_price_points(primary_key, snapshot_year, use)
     except Exception as exc:  # noqa: BLE001
         points = pd.DataFrame()
         st.warning(f"地点データ取得に失敗: {exc}")

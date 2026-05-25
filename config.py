@@ -137,3 +137,13 @@ YEAR_ATTRIBUTE = "DPF:year"
 PREF_ATTRIBUTE = "DPF:prefecture_code"
 MUNI_ATTRIBUTE = "DPF:municipality_code"
 DATASET_ATTRIBUTE = "DPF:dataset_id"
+
+# Each 地価公示 record embeds its own multi-decade price history under this
+# key, shaped like {"showa58": 0, ..., "heisei30": 167000, "reiwa1": 170000,
+# ..., "reiwa8": 197000}. A value of 0 means "not surveyed that year for this
+# standard point". The trend builder converts era-year keys (showa/heisei/
+# reiwa) to calendar years and aggregates across all points. Using this beats
+# querying the API once per year because (a) older year snapshots don't exist
+# as separate dataset rows on the platform and (b) one fetch yields ~44 years
+# of trend per region. See mlit/data.py:land_price_trend_embedded.
+PRICE_HISTORY_FIELD = "NLNI:kouji_kakaku"
