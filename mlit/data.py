@@ -17,7 +17,8 @@ import config
 from mlit import queries as q
 from mlit.client import MlitClient
 
-# Safety cap on how many point records to pull per (region, year).
+# Safety cap on total point records pulled per (region, year), shared across
+# all of a theme's datasets (地価公示 + 地価調査) — not per dataset.
 _MAX_POINTS = 6000
 _PAGE = 500
 
@@ -116,12 +117,13 @@ def _search_paginated(
     year: int | None,
     dataset_id: str | None,
     term: str,
+    limit: int,
 ) -> list[dict]:
-    """Page through `search` for a single dataset filter and collect results."""
+    """Page through `search` for a single dataset filter, up to `limit` rows."""
     attr = _attr_filter(region_key, year, dataset_id)
     out: list[dict] = []
     first = 0
-    while first < _MAX_POINTS:
+    while len(out) < limit:
         data = client.execute(
             q.search_q(term=term, size=_PAGE, first=first, attribute_filter=attr)
         )
@@ -132,7 +134,7 @@ def _search_paginated(
         first += _PAGE
         if first >= total or not results:
             break
-    return out
+    return out[:limit]
 
 
 @st.cache_data(ttl=3600, show_spinner=False)
@@ -149,9 +151,12 @@ def _fetch_points(region_key: str, theme_key: str, year: int) -> list[dict]:
     if ds_ids:
         out: list[dict] = []
         for ds_id in ds_ids:
-            out.extend(_search_paginated(client, region_key, year, ds_id, term=""))
+            remaining = _MAX_POINTS - len(out)
+            if remaining <= 0:
+                break
+            out.extend(_search_paginated(client, region_key, year, ds_id, "", remaining))
         return out
-    return _search_paginated(client, region_key, year, None, _theme_term(theme_key))
+    return _search_paginated(client, region_key, year, None, _theme_term(theme_key), _MAX_POINTS)
 
 
 def _records_to_df(records: list[dict], region_key: str) -> pd.DataFrame:
