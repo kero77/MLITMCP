@@ -97,36 +97,35 @@ def _theme_dataset_ids(theme_key: str) -> list[str]:
     return [config.DATASETS[k] for k in keys if config.DATASETS.get(k)]
 
 
-def _attr_filter(region_key: str, year: int | None, theme_key: str) -> str:
+def _attr_filter(region_key: str, year: int | None, dataset_id: str | None = None) -> str:
     region = config.REGIONS[region_key]
     filters: list[tuple[str, str | int]] = [
         (config.PREF_ATTRIBUTE, region.prefecture_code)
     ]
     if year is not None:
         filters.append((config.YEAR_ATTRIBUTE, year))
-    ds_ids = _theme_dataset_ids(theme_key)
-    if len(ds_ids) == 1:
-        filters.append((config.DATASET_ATTRIBUTE, ds_ids[0]))
+    if dataset_id:
+        filters.append((config.DATASET_ATTRIBUTE, dataset_id))
     return q.attr_and(filters)
 
 
 # --- raw fetch ---------------------------------------------------------------
-@st.cache_data(ttl=3600, show_spinner=False)
-def _fetch_points(region_key: str, theme_key: str, year: int) -> list[dict]:
-    """Paginated `search` for one region+year, returns raw result dicts.
-
-    Uses term-based fallback when dataset_id is unknown.
-    """
-    client = get_client()
-    attr = _attr_filter(region_key, year, theme_key)
-    term = "" if _theme_dataset_ids(theme_key) else _theme_term(theme_key)
+def _search_paginated(
+    client: MlitClient,
+    region_key: str,
+    year: int | None,
+    dataset_id: str | None,
+    term: str,
+) -> list[dict]:
+    """Page through `search` for a single dataset filter and collect results."""
+    attr = _attr_filter(region_key, year, dataset_id)
     out: list[dict] = []
     first = 0
     while first < _MAX_POINTS:
         data = client.execute(
             q.search_q(term=term, size=_PAGE, first=first, attribute_filter=attr)
         )
-        block = (data.get("search") or {})
+        block = data.get("search") or {}
         results = block.get("searchResults") or []
         out.extend(results)
         total = block.get("totalNumber") or 0
@@ -134,6 +133,25 @@ def _fetch_points(region_key: str, theme_key: str, year: int) -> list[dict]:
         if first >= total or not results:
             break
     return out
+
+
+@st.cache_data(ttl=3600, show_spinner=False)
+def _fetch_points(region_key: str, theme_key: str, year: int) -> list[dict]:
+    """Raw `search` records for one region+year, scoped to the theme's datasets.
+
+    The API filters a single dataset_id at a time, so when a theme spans several
+    (地価公示 + 地価調査) we query each one separately and merge — keeping
+    unrelated datasets out of the results. Falls back to keyword search only when
+    no dataset_id is configured.
+    """
+    client = get_client()
+    ds_ids = _theme_dataset_ids(theme_key)
+    if ds_ids:
+        out: list[dict] = []
+        for ds_id in ds_ids:
+            out.extend(_search_paginated(client, region_key, year, ds_id, term=""))
+        return out
+    return _search_paginated(client, region_key, year, None, _theme_term(theme_key))
 
 
 def _records_to_df(records: list[dict], region_key: str) -> pd.DataFrame:
@@ -313,11 +331,6 @@ def land_price_trend_embedded(
     )
     grp["yoy_pct"] = grp["mean_price"].pct_change() * 100
     return grp.reset_index(drop=True)
-
-
-def transaction_prices(region_key: str, year: int) -> pd.DataFrame:
-    """Real-estate transaction-price records for one city and year."""
-    return _records_to_df(_fetch_points(region_key, "transaction", year), region_key)
 
 
 def land_use_options(region_key: str, year: int) -> list[str]:
