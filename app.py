@@ -149,7 +149,7 @@ fig = px.line(
     labels={"平均地価": f"平均地価 ({price_unit})"},
 )
 fig.update_layout(height=420, legend_title_text="")
-st.plotly_chart(fig, use_container_width=True)
+st.plotly_chart(fig, width="stretch")
 
 if primary_trend is not None and "yoy_pct" in primary_trend:
     yoy_df = primary_trend.dropna(subset=["yoy_pct"])
@@ -160,7 +160,7 @@ if primary_trend is not None and "yoy_pct" in primary_trend:
             title=f"{primary_label} 前年比の推移",
         )
         bar.update_layout(height=320)
-        st.plotly_chart(bar, use_container_width=True)
+        st.plotly_chart(bar, width="stretch")
 
 
 # --- map of detailed points (land price) -------------------------------------
@@ -202,7 +202,7 @@ table_frames = []
 for label, t in trend_frames.items():
     table_frames.append(t.assign(都市=label))
 table = pd.concat(table_frames, ignore_index=True)
-st.dataframe(table, use_container_width=True)
+st.dataframe(table, width="stretch")
 st.download_button(
     "CSVダウンロード",
     table.to_csv(index=False).encode("utf-8-sig"),
