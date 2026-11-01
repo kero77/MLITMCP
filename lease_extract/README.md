@@ -22,3 +22,9 @@ OLLAMA_MODEL=gemma4:e2b python -m lease_extract.extract lease_extract/samples/*.
 - レントロールは 25 行ずつ見出し付きで分割して処理します。列の並びが特殊な表は精度が落ちます。
 - 実データの前に、ダミー書類で使用モデルの抽出精度を確認してください。
 - テスト（`pytest lease_extract/tests`）は LLM をスタブにしており、モデルの精度は検証しません。
+
+## 精度が低いとき
+
+- 小型モデルは「ラベル: 値」の項目を `null` にしがちです。`extract.py` の `CONTRACT_HINTS` / `RENT_ROLL_HINTS` に、項目とラベルの対応を書いています。自分の書式に合わせて追記してください。
+- `OLLAMA_THINK=false` を付けると、思考の出力を切って速くできます（モデルが対応している場合）。
+- それでも足りなければ、より大きいモデル（例: `hf.co/unsloth/Qwen3.8-27B-GGUF:UD-IQ4_XS`）に上げます。

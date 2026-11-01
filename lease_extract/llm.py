@@ -14,6 +14,8 @@ LLMFn = Callable[[str, str, dict], str]
 
 OLLAMA_HOST = os.environ.get("OLLAMA_HOST_URL", "http://localhost:11434")
 OLLAMA_MODEL = os.environ.get("OLLAMA_MODEL", "gemma4:e2b")
+# OLLAMA_THINK=false で思考出力を切る（true で有効）。未設定ならモデルの既定に任せる
+_THINK = os.environ.get("OLLAMA_THINK", "").strip().lower()
 
 
 def ollama_chat(system: str, user: str, schema: dict) -> str:
@@ -21,21 +23,19 @@ def ollama_chat(system: str, user: str, schema: dict) -> str:
     headers = {}
     if os.environ.get("OLLAMA_API_KEY"):
         headers["Authorization"] = f"Bearer {os.environ['OLLAMA_API_KEY']}"
-    r = requests.post(
-        f"{OLLAMA_HOST}/api/chat",
-        headers=headers,
-        json={
-            "model": OLLAMA_MODEL,
-            "stream": False,
-            "format": schema,
-            "options": {"temperature": 0, "num_ctx": 8192},
-            "messages": [
-                {"role": "system", "content": system},
-                {"role": "user", "content": user},
-            ],
-        },
-        timeout=600,
-    )
+    body = {
+        "model": OLLAMA_MODEL,
+        "stream": False,
+        "format": schema,
+        "options": {"temperature": 0, "num_ctx": 8192},
+        "messages": [
+            {"role": "system", "content": system},
+            {"role": "user", "content": user},
+        ],
+    }
+    if _THINK in ("true", "false"):
+        body["think"] = _THINK == "true"
+    r = requests.post(f"{OLLAMA_HOST}/api/chat", headers=headers, json=body, timeout=600)
     r.raise_for_status()
     return r.json()["message"]["content"]
 
