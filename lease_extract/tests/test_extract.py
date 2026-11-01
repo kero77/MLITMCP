@@ -86,3 +86,19 @@ def test_schema_is_in_prompt_not_only_in_format():
 
     extract(LeaseContract, "s", "u", llm)
     assert "monthly_rent" in seen["system"] and "月額賃料" in seen["system"]
+
+
+def test_strict_schema_has_no_null_and_all_required():
+    from lease_extract.llm import strict_schema
+    from lease_extract.schemas import RentRollChunk
+
+    sch = strict_schema(RentRollChunk)
+    row = sch["$defs"]["RentRollRow"]
+    assert set(row["required"]) == set(row["properties"])
+    assert "anyOf" not in json.dumps(row) and '"type": "null"' not in json.dumps(row)
+    assert row["properties"]["monthly_rent"]["type"] == "integer"
+
+
+def test_sentinels_become_none():
+    out = extract(LeaseContract, "s", "u", lambda *a: json.dumps({"lessor": "", "monthly_rent": -1, "deposit": 5}))
+    assert out.lessor is None and out.monthly_rent is None and out.deposit == 5

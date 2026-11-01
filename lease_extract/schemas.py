@@ -7,7 +7,7 @@ from pydantic import BaseModel, Field
 
 
 class LeaseContract(BaseModel):
-    """賃貸借契約書から抽出する項目。契約書に無い項目は null にする。"""
+    """賃貸借契約書から抽出する項目。契約書に無い項目は空文字(文字列)または -1(数値)にする。"""
 
     property_name: Optional[str] = Field(None, description="物件名")
     property_address: Optional[str] = Field(None, description="物件所在地")
@@ -29,7 +29,7 @@ class RentRollRow(BaseModel):
     """レントロール 1 行（1 区画）。"""
 
     room_number: Optional[str] = Field(None, description="部屋番号")
-    tenant: Optional[str] = Field(None, description="入居者名。空室なら null")
+    tenant: Optional[str] = Field(None, description="入居者名。空室なら空文字")
     is_vacant: Optional[bool] = Field(None, description="空室か")
     area_sqm: Optional[float] = Field(None, description="専有面積（㎡）")
     monthly_rent: Optional[int] = Field(None, description="月額賃料（円）")

@@ -34,3 +34,9 @@ OLLAMA_MODEL=gemma4:e2b python -m lease_extract.extract lease_extract/samples/*.
 Ollama の `format`（JSON Schema）は出力を制約するだけで、モデルにはスキーマが見えません。
 そのため、スキーマ（キー名と説明）をシステムプロンプトにも渡しています（`llm.schema_prompt`）。
 それでも崩れる場合は `OLLAMA_THINK=false` を試してください（思考と構造化出力の相性が悪いモデルがあります）。
+
+## null だらけになるとき
+
+モデルに渡すスキーマは、全項目を必須・null 不可にしています（`llm.strict_schema`）。
+記載が無い項目は文字列なら `""`、数値なら `-1` で返させ、受け取ったあとに `None` へ戻します。
+Optional（null 可）のスキーマだと、小型モデルが `null` を選びすぎるためです。
