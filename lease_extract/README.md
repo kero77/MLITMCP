@@ -28,3 +28,9 @@ OLLAMA_MODEL=gemma4:e2b python -m lease_extract.extract lease_extract/samples/*.
 - 小型モデルは「ラベル: 値」の項目を `null` にしがちです。`extract.py` の `CONTRACT_HINTS` / `RENT_ROLL_HINTS` に、項目とラベルの対応を書いています。自分の書式に合わせて追記してください。
 - `OLLAMA_THINK=false` を付けると、思考の出力を切って速くできます（モデルが対応している場合）。
 - それでも足りなければ、より大きいモデル（例: `hf.co/unsloth/Qwen3.8-27B-GGUF:UD-IQ4_XS`）に上げます。
+
+## 出力が崩れるとき（キー名が違う、文字列の中に JSON が入る）
+
+Ollama の `format`（JSON Schema）は出力を制約するだけで、モデルにはスキーマが見えません。
+そのため、スキーマ（キー名と説明）をシステムプロンプトにも渡しています（`llm.schema_prompt`）。
+それでも崩れる場合は `OLLAMA_THINK=false` を試してください（思考と構造化出力の相性が悪いモデルがあります）。

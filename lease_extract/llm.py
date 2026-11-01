@@ -1,6 +1,7 @@
 """Ollama の /api/chat を呼ぶ最小クライアント。JSON Schema で出力形式を固定する。"""
 from __future__ import annotations
 
+import json
 import os
 from typing import Callable, TypeVar
 
@@ -40,9 +41,20 @@ def ollama_chat(system: str, user: str, schema: dict) -> str:
     return r.json()["message"]["content"]
 
 
+def schema_prompt(schema: dict) -> str:
+    """format はデコードを制約するだけで、モデルにはスキーマが見えない。
+    キー名と説明をプロンプトにも渡して、出力を裏付ける（Ollama 公式の推奨）。"""
+    return (
+        "\n\n出力は次の JSON Schema に厳密に従う JSON オブジェクト 1 つだけにしてください。"
+        "キー名はスキーマの名前をそのまま使い、別名（rent など）や説明文は付けないでください。\n"
+        + json.dumps(schema, ensure_ascii=False)
+    )
+
+
 def extract(model: type[T], system: str, user: str, llm: LLMFn = ollama_chat, retries: int = 2) -> T:
     """スキーマに合う JSON が返るまで数回やり直す。"""
     schema = model.model_json_schema()
+    system = system + schema_prompt(schema)
     last: Exception | None = None
     for _ in range(retries + 1):
         raw = llm(system, user, schema)

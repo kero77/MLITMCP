@@ -75,3 +75,14 @@ def test_retry_then_fail():
 def test_retry_recovers():
     outs = iter(["oops", '{"monthly_rent": 5}'])
     assert extract(LeaseContract, "s", "u", lambda *a: next(outs)).monthly_rent == 5
+
+
+def test_schema_is_in_prompt_not_only_in_format():
+    seen = {}
+
+    def llm(system, user, schema):
+        seen["system"] = system
+        return "{}"
+
+    extract(LeaseContract, "s", "u", llm)
+    assert "monthly_rent" in seen["system"] and "月額賃料" in seen["system"]
