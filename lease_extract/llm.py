@@ -3,6 +3,7 @@ from __future__ import annotations
 
 import json
 import os
+import sys
 from typing import Callable, TypeVar
 
 import requests
@@ -97,6 +98,8 @@ def extract(model: type[T], system: str, user: str, llm: LLMFn = ollama_chat, re
     last: Exception | None = None
     for _ in range(retries + 1):
         raw = llm(system, user, schema)
+        if os.environ.get("LEASE_DEBUG"):
+            print(f"[LEASE_DEBUG] raw model output:\n{raw}\n", file=sys.stderr)
         try:
             return model.model_validate(_normalize(json.loads(raw)))
         except Exception as e:  # noqa: BLE001

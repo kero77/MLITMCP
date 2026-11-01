@@ -26,6 +26,7 @@ OLLAMA_MODEL=gemma4:e2b python -m lease_extract.extract lease_extract/samples/*.
 ## 精度が低いとき
 
 - 小型モデルは「ラベル: 値」の項目を `null` にしがちです。`extract.py` の `CONTRACT_HINTS` / `RENT_ROLL_HINTS` に、項目とラベルの対応を書いています。自分の書式に合わせて追記してください。
+- `LEASE_DEBUG=1` を付けると、モデルの生の出力を標準エラーに表示します（原因調査用）。
 - `OLLAMA_THINK=false` を付けると、思考の出力を切って速くできます（モデルが対応している場合）。
 - それでも足りなければ、より大きいモデル（例: `hf.co/unsloth/Qwen3.8-27B-GGUF:UD-IQ4_XS`）に上げます。
 
